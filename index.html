@@ -1,80 +1,3 @@
-<!DOCTYPE html>
-<html lang="uk">
-<head>
-<meta charset="UTF-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>Вхід • Стати на облік</title>
-<style>
-  body {
-  font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
-  margin: 0;
-  background: url("vlk.1-1-1.jpg") no-repeat center center fixed; /* 👈 шлях до картинки */
-  background-size: cover; /* заповнює екран */
-  color: #e2e8f0;
-  overflow-x: hidden;
-}
-
-  .wrap{max-width:900px;margin:40px auto;padding:0 16px}
-  .card {
-  background: rgba(17, 24, 39, 0.8); /* напівпрозорий темний фон */
-  backdrop-filter: blur(8px);        /* ефект скла — розмиття фону під блоком */
-  border: 1px solid rgba(255, 255, 255, 0.1); /* світла рамка з легким прозорим ефектом */
-  border-radius: 14px;
-  padding: 20px;
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.3); /* тінь для глибини */
-  margin-bottom: 16px;
-}
-  h1{margin:0 0 10px}
-  .muted{color:#94a3b8}
-  .row{display:flex;gap:12px;flex-wrap:wrap;margin:10px 0;align-items:center}
-  input{padding:10px 12px;border-radius:10px;border:1px solid #334155;background:#0b1220;color:#e2e8f0;min-width:260px}
-  button{padding:10px 14px;border-radius:10px;border:1px solid #334155;background:#1f2937;color:#e2e8f0;cursor:pointer}
-  button:hover{background:#243041}
-  table{width:100%;border-collapse:collapse;margin-top:12px}
-  th,td{border-bottom:1px solid #243041;padding:10px 8px;text-align:left}
-  th{color:#9fb2d1;font-weight:600}
-  #preTestOverlay{position:fixed;inset:0;background:rgba(15,23,42,.96);display:none;justify-content:center;align-items:center;flex-direction:column;z-index:9999;text-align:center}
-  #preTestOverlay.show{display:flex;animation:fadeIn .3s ease forwards}
-  @keyframes fadeIn{from{opacity:0}to{opacity:1}}
-  #preTestOverlay h2{font-size:2rem;margin-bottom:10px}
-  #preTestOverlay p{color:#9fb2d1;font-size:1.1rem;margin-bottom:20px}
-</style>
-</head>
-<body>
-<div class="wrap">
-  <!-- Стати на облік -->
-  <div class="card">
-    <h1>Стати на облік</h1>
-    <p class="muted" id="hello">Вкажи ім’я, щоб стати на облік.</p>
-
-    <div id="regBox" class="row">
-      <input id="nameInput" type="text" maxlength="40" placeholder="Твоє ім’я">
-      <button onclick="register()">Підтвердити</button>
-    </div>
-
-    <!-- Дії після реєстрації (сюди малюємо «Пройти ВЛК» для статусу 2 або хабар для статусу 3) -->
-    <div id="actions" class="row"></div>
-
-    <p class="muted" id="regHint"></p>
-  </div>
-
-  <!-- Особовий склад -->
-  <div class="card" style="margin-top:16px">
-    <h1>Особовий склад</h1>
-    <table>
-      <thead><tr><th>Ім’я</th><th>Статус</th><th>Хабарі ($)</th></tr></thead>
-      <tbody id="boardBody"><tr><td colspan="3" class="muted">Завантаження…</td></tr></tbody>
-    </table>
-  </div>
-</div>
-
-<!-- Попередження перед тестом -->
-<div id="preTestOverlay">
-  <h2>🧠 Увага!</h2>
-  <p>У тебе є лише <strong>3 спроби</strong> пройти тест.</p>
-  <p id="countdownText">Перехід через <span id="count">3</span> с…</p>
-</div>
-
 <script type="module">
   const firebaseConfig = {
     apiKey: "AIzaSyABgG9BNjzZP0LgMMOmirxUF_dccywAECI",
@@ -96,6 +19,9 @@
   localStorage.setItem('playerId', playerId);
   let playerName = localStorage.getItem('playerName') || "";
 
+  // ✅ робимо uid доступним у всьому модулі
+  let uid = null;
+
   async function boot(){
     if(useFb){
       const appSdk = await import('https://www.gstatic.com/firebasejs/10.13.1/firebase-app.js');
@@ -104,7 +30,12 @@
       app = appSdk.initializeApp(firebaseConfig);
       auth = authSdk.getAuth(app);
       fs   = fsSdk;
-      try{ await authSdk.signInAnonymously(auth); }catch(e){ useFb=false; }
+      try{
+        await authSdk.signInAnonymously(auth);
+        uid = auth.currentUser?.uid || null;     // ✅ беремо UID після логіну
+      }catch(e){
+        useFb=false;
+      }
       db = fsSdk.initializeFirestore(app,{experimentalForceLongPolling:true,useFetchStreams:false,ignoreUndefinedProperties:true});
     }
 
@@ -121,13 +52,12 @@
         $('hello').textContent = 'Ви вже стоїте на обліку';
         $('regBox').style.display = 'none';
         await syncStatusFromDb();
-        renderActions();              // ← малюємо потрібну кнопку під статус
+        renderActions();
       }
     }
     await loadBoard();
   }
 
-  // показати текст-попередження і перейти до тесту
   function showPreTestOverlay(){
     const overlay = $('preTestOverlay');
     overlay.classList.add('show');
@@ -139,7 +69,6 @@
     },1000);
   }
 
-  // натискання «Підтвердити»
   async function register(){
     const name = $('nameInput').value.trim().slice(0,40);
     if(!name){ $('regHint').textContent='Введи ім’я'; return; }
@@ -152,7 +81,7 @@
     await ensurePlayerRecord(name);
     await syncStatusFromDb();
     await loadBoard();
-    renderActions();                 // на випадок, якщо статус уже 2/3
+    renderActions();
 
     showPreTestOverlay();
   }
@@ -169,21 +98,20 @@
     }catch(e){}
   }
 
-  // Намалювати дії під статус: ВЛК для ухилянта або хабар для мобілізованого
   function renderActions(){
     const actions = $('actions');
     if(!actions) return;
     actions.innerHTML = '';
     const status = Number(localStorage.getItem('status')) || 2;
 
-    if(status === STATUS.DRAFT){ // 2 — Ухилянт
+    if(status === STATUS.DRAFT){
       const btn = document.createElement('button');
       btn.textContent = 'Пройти ВЛК →';
       btn.onclick = () => location.href='play.html';
       actions.appendChild(btn);
     }
 
-    if(status === STATUS.FAILED){ // 3 — Мобілізований
+    if(status === STATUS.FAILED){
       const btn = document.createElement('button');
       btn.textContent = '💸 100$ пожертва для ТЦК — «Почати заново»';
       btn.onclick = retryWithBribe;
@@ -201,6 +129,7 @@
     if(useFb){
       const ref = fs.doc(db,'players',playerId);
       await fs.setDoc(ref,{
+        ownerUid: uid,                // ✅ додаємо власника
         bribes: next,
         status: STATUS.DRAFT,
         updatedAt: Date.now(),
@@ -210,13 +139,14 @@
     location.href = 'play.html';
   }
 
-  // створюємо/оновлюємо запис ТІЛЬКИ під час реєстрації
+  // створюємо/оновлюємо запис під час реєстрації
   async function ensurePlayerRecord(name){
     if(!useFb) return;
     const ref = fs.doc(db,'players',playerId);
     const snap = await fs.getDoc(ref);
     if(!snap.exists()){
       await fs.setDoc(ref,{
+        ownerUid: uid,                // ✅ додаємо власника
         name,
         nameLower:name.toLowerCase(),
         status:2,
@@ -226,6 +156,7 @@
     }else{
       const d=snap.data()||{};
       await fs.setDoc(ref,{
+        ownerUid: uid,                // ✅ тримаємо власника і при оновленнях
         name,
         nameLower:name.toLowerCase(),
         bribes:d.bribes||0,
@@ -261,5 +192,3 @@
   boot();
   window.register=register;
 </script>
-</body>
-</html>
