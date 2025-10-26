@@ -77,225 +77,218 @@
 </div>
 
 <script type="module">
-  const firebaseConfig = {
-    apiKey: "AIzaSyABgG9BNjzZP0LgMMOmirxUF_dccywAECI",
-    authDomain: "test1-b220e.firebaseapp.com",
-    projectId: "test1-b220e",
-    storageBucket: "test1-b220e.firebasestorage.app",
-    messagingSenderId: "913590893459",
-    appId: "1:913590893459:web:04f04c5935eb24a3de0666",
-    measurementId: "G-8PJR7M8F8Y"
-  };
+/* ───────────────── 1) Firebase init ───────────────── */
+const firebaseConfig = {
+  apiKey: "AIzaSyABgG9BNjzZP0LgMMOmirxUF_dccywAECI",
+  authDomain: "test1-b220e.firebaseapp.com",
+  projectId: "test1-b220e",
+  storageBucket: "test1-b220e.firebasestorage.app",
+  messagingSenderId: "913590893459",
+  appId: "1:913590893459:web:04f04c5935eb24a3de0666",
+  measurementId: "G-8PJR7M8F8Y"
+};
 
-  const STATUS = {PASSED:1, DRAFT:2, FAILED:3};
-  const $ = id => document.getElementById(id);
+const STATUS = { PASSED:1, DRAFT:2, FAILED:3 };
+const $ = id => document.getElementById(id);
+const safeHtml = (el, html) => { if (el) el.innerHTML = html; };
 
-  let useFb = !!firebaseConfig.apiKey;
-  let app,auth,db,fs;
+/* локальний стан */
+let useFb = !!firebaseConfig.apiKey;
+let app, auth, db, fs;
+let uid = null;
 
-  let playerId = localStorage.getItem('playerId') || crypto.randomUUID();
-  localStorage.setItem('playerId', playerId);
-  let playerName = localStorage.getItem('playerName') || "";
+let playerId   = localStorage.getItem('playerId') || crypto.randomUUID();
+let playerName = localStorage.getItem('playerName') || "";
+localStorage.setItem('playerId', playerId);
 
-  // ⬇️  нове: зберігаємо UID анонімного користувача і кладемо в Firestore як ownerUid
-  let uid = null;
+function getStatus(){ return Number(localStorage.getItem('status')) || STATUS.DRAFT; }
+function setStatus(s){ localStorage.setItem('status', String(s)); }
+function getBribes(){ return Number(localStorage.getItem('bribes')) || 0; }
+function setBribes(v){ localStorage.setItem('bribes', String(v)); }
 
-  async function boot(){
+/* ──────────────── 2) Boot (login + Firestore) ──────────────── */
+async function boot(){
+  if(useFb){
+    const appSdk = await import('https://www.gstatic.com/firebasejs/10.13.1/firebase-app.js');
+    const authSdk= await import('https://www.gstatic.com/firebasejs/10.13.1/firebase-auth.js');
+    const fsSdk  = await import('https://www.gstatic.com/firebasejs/10.13.1/firebase-firestore.js');
+
+    app  = appSdk.initializeApp(firebaseConfig);
+    auth = authSdk.getAuth(app);
+    fs   = fsSdk;
+
+    try{
+      await authSdk.signInAnonymously(auth);
+      uid = auth.currentUser?.uid || null;
+    }catch(e){
+      // якщо адблок блокує firestore — буде офлайн режим
+      console.warn('Auth error (може бути AdBlock):', e);
+      useFb = false;
+    }
+
     if(useFb){
-      const appSdk = await import('https://www.gstatic.com/firebasejs/10.13.1/firebase-app.js');
-      const authSdk = await import('https://www.gstatic.com/firebasejs/10.13.1/firebase-auth.js');
-      const fsSdk   = await import('https://www.gstatic.com/firebasejs/10.13.1/firebase-firestore.js');
-      app = appSdk.initializeApp(firebaseConfig);
-      auth = authSdk.getAuth(app);
-      fs   = fsSdk;
-      try{
-        await authSdk.signInAnonymously(auth);
-        uid = auth.currentUser?.uid || null;       // ✅ UID для правил безпеки
-      }catch(e){ useFb=false; }
-      db = fsSdk.initializeFirestore(app,{experimentalForceLongPolling:true,useFetchStreams:false,ignoreUndefinedProperties:true});
+      db = fsSdk.initializeFirestore(app, {
+        experimentalForceLongPolling:true,
+        useFetchStreams:false,
+        ignoreUndefinedProperties:true
+      });
     }
+  }
 
-    if(playerName && useFb){
-      const ref  = fs.doc(db,'players',playerId);
-      const snap = await fs.getDoc(ref);
-
-      if(!snap.exists()){
-        // локальний playerId не знайдено у БД — скидаємо і створюємо заново
-        localStorage.clear();
-        playerId = crypto.randomUUID();
-        localStorage.setItem('playerId', playerId);
-        $('regBox').style.display = 'flex';
-      } else {
-        $('hello').textContent = 'Ви вже стоїте на обліку';
-        $('regBox').style.display = 'none';
-        await syncStatusFromDb();
-        renderActions();
-      }
-    }
-
-    // не рендеримо таблицю, якщо її немає на сторінці
-    if (document.getElementById('boardBody')) {
-      if (document.getElementById('boardBody')) {
+  if(playerName){
+    $('hello') && ($('hello').textContent = 'Ви вже стоїте на обліку');
+    $('regBox') && ( $('regBox').style.display = 'none' );
+    await ensurePlayerRecord(playerName);
+    await syncStatusFromDb();
+    renderActions();
+  }
   await loadBoard();
 }
 
-    }
+/* ─────────────── 3) Дії користувача ─────────────── */
+async function register(){
+  const name = $('nameInput')?.value.trim().slice(0,40) || "";
+  if(!name){ $('regHint') && ( $('regHint').textContent='Введи ім’я' ); return; }
+
+  playerName = name;
+  localStorage.setItem('playerName', name);
+  $('hello') && ( $('hello').textContent = 'Ви вже стоїте на обліку' );
+  $('regBox') && ( $('regBox').style.display = 'none' );
+
+  await ensurePlayerRecord(name);
+  await syncStatusFromDb();
+  await loadBoard();
+  renderActions();
+  showPreTestOverlay();
+}
+
+function showPreTestOverlay(){
+  const overlay = $('preTestOverlay');
+  if(!overlay) return;
+  overlay.classList.add('show');
+  let sec = 3;
+  const c = $('count');
+  const t = setInterval(()=>{
+    sec--; if(c) c.textContent = sec;
+    if(sec<=0){ clearInterval(t); location.href='play.html'; }
+  },1000);
+}
+
+/* ─────────────── 4) Робота з Firestore ─────────────── */
+async function ensurePlayerRecord(name){
+  if(!useFb || !uid) return; // офлайн
+  const ref  = fs.doc(db,'players',playerId);
+  const snap = await fs.getDoc(ref);
+
+  if(!snap.exists()){
+    await fs.setDoc(ref,{
+      ownerUid: uid,               // ВАЖЛИВО для правил безпеки
+      name,
+      nameLower: name.toLowerCase(),
+      status: STATUS.DRAFT,
+      bribes: getBribes(),
+      updatedAt: Date.now()
+    });
+  }else{
+    // тримаємо ownerUid і оновлюємо лише потрібне
+    await fs.setDoc(ref,{
+      ownerUid: uid,
+      name,
+      nameLower: name.toLowerCase(),
+      updatedAt: Date.now()
+    },{ merge:true });
   }
+}
 
-  function showPreTestOverlay(){
-    const overlay = $('preTestOverlay');
-    overlay.classList.add('show');
-    let sec = 3;
-    const c = $('count');
-    const t = setInterval(()=>{
-      sec--; c.textContent = sec;
-      if(sec<=0){ clearInterval(t); location.href='play.html'; }
-    },1000);
-  }
-
-  async function register(){
-    const name = $('nameInput').value.trim().slice(0,40);
-    if(!name){ $('regHint').textContent='Введи ім’я'; return; }
-
-    playerName = name;
-    localStorage.setItem('playerName', name);
-    $('hello').textContent = 'Ви вже стоїте на обліку';
-    $('regBox').style.display = 'none';
-
-    await ensurePlayerRecord(name);   // ⬅️ тут створиться документ з ownerUid
-    await syncStatusFromDb();
-    if (document.getElementById('boardBody')) {
-      await loadBoard();
-    }
-    renderActions();
-
-    showPreTestOverlay();
-  }
-
-  async function syncStatusFromDb(){
-    if(!useFb) return;
-    try{
-      const ref = fs.doc(db,'players',playerId);
-      const snap = await fs.getDoc(ref);
-      if(snap.exists()){
-        const s = Number(snap.data().status);
-        if(s===1||s===3) localStorage.setItem('status',String(s));
-      }
-    }catch(e){}
-  }
-
-  // Кнопки під статус
-  function renderActions(){
-    const actions = $('actions');
-    if(!actions) return;
-    actions.innerHTML = '';
-    const status = Number(localStorage.getItem('status')) || 2;
-
-    if(status === STATUS.DRAFT){
-      const btn = document.createElement('button');
-      btn.textContent = 'Пройти ВЛК →';
-      btn.onclick = () => location.href='play.html';
-      actions.appendChild(btn);
-    }
-
-    if(status === STATUS.FAILED){
-      const btn = document.createElement('button');
-      btn.textContent = '💸 100$ пожертва для ТЦК — «Почати заново»';
-      btn.onclick = retryWithBribe;
-      actions.appendChild(btn);
-    }
-  }
-
-  // Дати хабар + скинути статус на DRAFT(2) + перехід до тесту
-  async function retryWithBribe(){
-    const cur = Number(localStorage.getItem('bribes'))||0;
-    const next = cur + 100;
-    localStorage.setItem('bribes', String(next));
-    localStorage.setItem('status', String(STATUS.DRAFT));
-
-    if(useFb){
-      const ref = fs.doc(db,'players',playerId);
-      await fs.setDoc(ref,{
-        ownerUid: uid,            // ✅ важливо для правил
-        bribes: next,
-        status: STATUS.DRAFT,
-        updatedAt: Date.now(),
-        name: playerName
-      },{merge:true});
-    }
-    location.href = 'play.html';
-  }
-
-  // створюємо/оновлюємо запис ТІЛЬКИ під час реєстрації
-  async function ensurePlayerRecord(name){
-    if(!useFb) return;
-    const ref = fs.doc(db,'players',playerId);
+async function syncStatusFromDb(){
+  if(!useFb || !uid) return;
+  try{
+    const ref  = fs.doc(db,'players',playerId);
     const snap = await fs.getDoc(ref);
-    if(!snap.exists()){
-      await fs.setDoc(ref,{
-        ownerUid: uid,            // ✅ додаємо власника
-        name,
-        nameLower:name.toLowerCase(),
-        status:2,
-        bribes:Number(localStorage.getItem('bribes'))||0,
-        updatedAt:Date.now()
-      });
-    }else{
-      const d=snap.data()||{};
-      await fs.setDoc(ref,{
-        ownerUid: uid,            // ✅ лишається і при оновленнях
-        name,
-        nameLower:name.toLowerCase(),
-        bribes:d.bribes||0,
-        updatedAt:Date.now()
-      },{merge:true});
+    if(snap.exists()){
+      const s = Number(snap.data().status);
+      if(s===STATUS.PASSED || s===STATUS.FAILED) setStatus(s);
     }
-  }
+  }catch(e){ console.warn(e); }
+}
 
-  function label(s){
-    if(s===1) return 'Відстрочка😎';
-    if(s===3) return 'Мобілізований 😩';
-    return 'Ухилянт😑';
-  }
+async function retryWithBribe(){
+  const next = getBribes() + 100;
+  setBribes(next);
+  setStatus(STATUS.DRAFT);
 
-  async function loadBoard(){
-  const body = document.getElementById('boardBody');
-  if (!body) {
-    console.warn('[loadBoard] #boardBody not found — skip render');
-    return;
+  if(useFb && uid){
+    const ref = fs.doc(db,'players',playerId);
+    await fs.setDoc(ref,{
+      ownerUid: uid,
+      bribes: next,
+      status: STATUS.DRAFT,
+      updatedAt: Date.now(),
+      name: playerName
+    },{ merge:true });
   }
+  location.href = 'play.html';
+}
 
-  body.innerHTML = `<tr><td colspan="3" class="muted">Завантаження…</td></tr>`;
+async function loadBoard(){
+  const body = $('boardBody');
+  if(!body) return;                               // захист, щоб не падало
+  safeHtml(body, `<tr><td colspan="3" class="muted">Завантаження…</td></tr>`);
 
   let rows = [];
-  if (useFb) {
-    const q  = fs.query(fs.collection(db,'players'), fs.orderBy('bribes','desc'), fs.limit(1000));
-    const snap = await fs.getDocs(q);
-    snap.forEach(d => {
-      const v = d.data();
-      rows.push({ name: v.name, status: v.status, bribes: v.bribes || 0 });
-    });
-  } else {
-    rows = [{
-      name: playerName || 'Гість',
-      status: Number(localStorage.getItem('status')) || 2,
-      bribes: Number(localStorage.getItem('bribes')) || 0
-    }];
+  if(useFb){
+    try{
+      const q = fs.query(
+        fs.collection(db,'players'),
+        fs.orderBy('bribes','desc'),
+        fs.limit(1000)
+      );
+      const snap = await fs.getDocs(q);
+      snap.forEach(d=>{
+        const v=d.data();
+        rows.push({ name:v.name, status:v.status, bribes:v.bribes||0 });
+      });
+    }catch(e){
+      console.warn('Fetch board error (може бути AdBlock):', e);
+    }
+  }else{
+    rows = [{ name: playerName||'Гість', status: getStatus(), bribes: getBribes() }];
   }
 
   rows.sort((a,b)=>(b.bribes||0)-(a.bribes||0));
-  body.innerHTML = rows.map(r =>
-    `<tr><td>${escapeHtml(r.name)}</td><td>${label(r.status)}</td><td>${r.bribes||0}</td></tr>`
-  ).join('');
+  const esc = s=>String(s??'').replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));
+  safeHtml(body, rows.map(r=>`<tr><td>${esc(r.name)}</td><td>${label(r.status)}</td><td>${r.bribes||0}</td></tr>`).join(''));
 }
 
+/* ─────────────── 5) UI дрібниці ─────────────── */
+function label(s){
+  if(s===STATUS.PASSED) return 'Відстрочка😎';
+  if(s===STATUS.FAILED) return 'Мобілізований 😩';
+  return 'Ухилянт😑';
+}
 
-  function escapeHtml(s){
-    return String(s??'').replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));
+function renderActions(){
+  const actions = $('actions'); if(!actions) return;
+  actions.innerHTML = '';
+  const status = getStatus();
+
+  if(status === STATUS.DRAFT){
+    const b = document.createElement('button');
+    b.textContent = 'Пройти ВЛК →';
+    b.onclick = () => location.href='play.html';
+    actions.appendChild(b);
   }
+  if(status === STATUS.FAILED){
+    const b = document.createElement('button');
+    b.textContent = '💸 100$ пожертва для ТЦК — «Почати заново»';
+    b.onclick = retryWithBribe;
+    actions.appendChild(b);
+  }
+}
 
-  boot();
-  window.register=register;
+/* ─────────────── 6) Старт ─────────────── */
+window.addEventListener('DOMContentLoaded', boot);
+window.register = register;   // щоб працювала кнопка «Підтвердити»
 </script>
 </body>
 </html>
