@@ -135,7 +135,10 @@
 
     // не рендеримо таблицю, якщо її немає на сторінці
     if (document.getElementById('boardBody')) {
-      await loadBoard();
+      if (document.getElementById('boardBody')) {
+  await loadBoard();
+}
+
     }
   }
 
@@ -256,21 +259,36 @@
   }
 
   async function loadBoard(){
-    const body=$('boardBody');
-    if(!body){ console.warn('[loadBoard] #boardBody not found — skip render'); return; }
-
-    body.innerHTML=`<tr><td colspan="3" class="muted">Завантаження…</td></tr>`;
-    let rows=[];
-    if(useFb){
-      const q=fs.query(fs.collection(db,'players'),fs.orderBy('bribes','desc'),fs.limit(1000));
-      const snap=await fs.getDocs(q);
-      snap.forEach(d=>{const v=d.data();rows.push({name:v.name,status:v.status,bribes:v.bribes||0});});
-    }else{
-      rows=[{name:playerName||'Гість',status:Number(localStorage.getItem('status'))||2,bribes:Number(localStorage.getItem('bribes'))||0}];
-    }
-    rows.sort((a,b)=>(b.bribes||0)-(a.bribes||0));
-    body.innerHTML=rows.map(r=>`<tr><td>${escapeHtml(r.name)}</td><td>${label(r.status)}</td><td>${r.bribes||0}</td></tr>`).join('');
+  const body = document.getElementById('boardBody');
+  if (!body) {
+    console.warn('[loadBoard] #boardBody not found — skip render');
+    return;
   }
+
+  body.innerHTML = `<tr><td colspan="3" class="muted">Завантаження…</td></tr>`;
+
+  let rows = [];
+  if (useFb) {
+    const q  = fs.query(fs.collection(db,'players'), fs.orderBy('bribes','desc'), fs.limit(1000));
+    const snap = await fs.getDocs(q);
+    snap.forEach(d => {
+      const v = d.data();
+      rows.push({ name: v.name, status: v.status, bribes: v.bribes || 0 });
+    });
+  } else {
+    rows = [{
+      name: playerName || 'Гість',
+      status: Number(localStorage.getItem('status')) || 2,
+      bribes: Number(localStorage.getItem('bribes')) || 0
+    }];
+  }
+
+  rows.sort((a,b)=>(b.bribes||0)-(a.bribes||0));
+  body.innerHTML = rows.map(r =>
+    `<tr><td>${escapeHtml(r.name)}</td><td>${label(r.status)}</td><td>${r.bribes||0}</td></tr>`
+  ).join('');
+}
+
 
   function escapeHtml(s){
     return String(s??'').replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));
