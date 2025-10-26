@@ -1,0 +1,273 @@
+<!DOCTYPE html>
+<html lang="uk">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Перевірка придатності</title>
+
+<style>
+  body {
+  font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+  margin: 0;
+  background: url("Untitled-1.jpg") no-repeat center center fixed; /* 👈 шлях до картинки */
+  background-size: cover; /* заповнює екран */
+  color: #e2e8f0;
+  overflow-x: hidden;
+}
+
+  .wrap{max-width:900px;margin:40px auto;padding:0 16px}
+  .card {
+  background: rgba(17, 24, 39, 0.4); /* напівпрозорий темний фон */
+  backdrop-filter: blur(8px);        /* ефект скла — розмиття фону під блоком */
+  border: 1px solid rgba(255, 255, 255, 0.1); /* світла рамка з легким прозорим ефектом */
+  border-radius: 14px;
+  padding: 20px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.3); /* тінь для глибини */
+  margin-bottom: 16px;
+}
+
+  h1{margin:0 0 10px}
+  .muted{color:#94a3b8}
+  .row{display:flex;gap:12px;flex-wrap:wrap;margin:10px 0;align-items:center}
+  button{padding:10px 14px;border-radius:10px;border:1px solid #334155;background:#1f2937;color:#e2e8f0;cursor:pointer}
+  button:hover{background:#243041}
+  .q{font-size:20px;font-weight:600;margin:8px 0 12px}
+  .opts{display:grid;gap:10px;margin:12px 0 6px}
+  button.opt{text-align:left;padding:12px 14px;border-radius:10px;border:1px solid #334155;background:#0b1220;color:#e2e8f0;cursor:pointer}
+  button.opt:hover{background:#0d1424}
+  button.opt.correct{border-color:#22c55e;background:#062012}
+  button.opt.wrong{border-color:#ef4444;background:#1b0a0a}
+  .pill{display:inline-block;padding:4px 10px;border-radius:999px;background:#0b1220;border:1px solid #334155;font-size:12px;color:#94a3b8}
+  table{width:100%;border-collapse:collapse;margin-top:12px}
+  th,td{border-bottom:1px solid #243041;padding:10px 8px;text-align:left}
+  th{color:#9fb2d1;font-weight:600}
+  .hidden{display:none}
+  .progress{width:260px;height:8px;background:#0b1220;border:1px solid #334155;border-radius:999px;overflow:hidden}
+  .bar{height:100%;background:#22c55e;width:100%}
+  @keyframes countdown { from{width:100%} to{width:0%} }
+</style>
+</head>
+
+<body>
+<div class="wrap">
+  <!-- ====================== ПЕРЕВІРКА ПРИДАТНОСТІ ====================== -->
+  <div id="card-quiz" class="card">
+    <div class="row" style="justify-content:space-between;align-items:center">
+      <div><span class="pill" id="hello">Боєць</span></div>
+      <div><button onclick="goIndex()">← На головну</button></div>
+    </div>
+
+    <!-- Запитання -->
+    <div id="quizBox">
+      <div class="muted" id="progress"></div>
+      <div class="q" id="question"></div>
+      <div id="media" class="muted"></div>
+      <div class="opts" id="options"></div>
+      <div id="feedback" class="muted"></div>
+      <div class="row"><button id="nextBtn" class="hidden" onclick="nextQuestion()">Далі</button></div>
+    </div>
+
+    <!-- ====================== УСПІШНО: ВІДСТРОЧКА ====================== -->
+    <div id="successBox" class="hidden">
+      <h1>Відстрочка ✅ <span class="muted">(придатний умовно😑)</span></h1>
+      <p>👉
+        <span id="codeword" style="font-family:ui-monospace,Menlo,Consolas,monospace;background:#0b1220;border:1px dashed #334155;padding:6px 10px;border-radius:10px">XXXX</span>
+      </p>
+      <div class="row" style="gap:16px">
+        <span class="muted">Повернення на головну через <span id="sec">10</span> с</span>
+        <div class="progress"><div class="bar" id="bar"></div></div>
+      </div>
+    </div>
+
+    <!-- ====================== НЕСКЛАДАВ: МОБІЛІЗОВАНИЙ ====================== -->
+    <div id="failBox" class="hidden">
+      <h1>Мобілізований ❌ <span class="muted">(придатний повністю☠️)</span></h1>
+      <p class="muted">Пизда тобі хлопчику їдеш на Бімбас💣💣💣.</p>
+      <div class="row">
+        <button onclick="donateAndRestart()">💸 100$ пожертва для ТЦК — «Почати заново»</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ====================== ОСОБОВИЙ СКЛАД ====================== -->
+  <div id="card-table" class="card hidden">
+    <h1>Особовий склад • твоє місце</h1>
+    <p class="muted" id="myRank">Завантаження…</p>
+    <table>
+      <thead><tr><th>Ім’я</th><th>Статус</th><th>Хабарі ($)</th></tr></thead>
+      <tbody id="boardBody"><tr><td colspan="3" class="muted">Завантаження…</td></tr></tbody>
+    </table>
+  </div>
+</div>
+
+<script type="module">
+  const firebaseConfig = {
+    apiKey: "AIzaSyABgG9BNjzZP0LgMMOmirxUF_dccywAECI",
+    authDomain: "test1-b220e.firebaseapp.com",
+    projectId: "test1-b220e",
+    storageBucket: "test1-b220e.firebasestorage.app",
+    messagingSenderId: "913590893459",
+    appId: "1:913590893459:web:04f04c5935eb24a3de0666",
+    measurementId: "G-8PJR7M8F8Y"
+  };
+
+  const STATUS = {PASSED:1, DRAFT:2, FAILED:3};
+  const $ = id => document.getElementById(id);
+  const show = (el, yes)=> el.classList[yes?'remove':'add']('hidden');
+
+  let useFb = !!firebaseConfig.apiKey, app,auth,db,fs;
+
+  let playerId = localStorage.getItem('playerId') || crypto.randomUUID();
+  localStorage.setItem('playerId', playerId);
+  let playerName = localStorage.getItem('playerName') || "";
+  $('hello').textContent = playerName ? `Боєць: ${playerName}` : 'Боєць';
+
+  const QUESTIONS = [
+    { id:1, text:"Коли вперше згадується наше село в письмовому вигляді ?", options:["1631","1413","1813"], correctIndex:1, codeWord:"Отець Олександр жме тобі руку" },
+    { id:2, text:"Скільки буде 2 + 2?", options:["3","4","5"], correctIndex:1, codeWord:"Марія Василівна гордиться тобою" },
+    { id:3, text:"Хто розповідає історію :", options:["Янукович","Ющенко","Кучма"], correctIndex:2, codeWord:"Галина Андріївна кидає тобі респект", mediaUrl:"https://youtu.be/6qwudhxEzLU?list=PLTjp4iNBvsapt6iUNvNl5U49MN1iofcAA" },
+    { id:4, text:"Шеф...?", options:["повар","...иня","хуй"], correctIndex:2, codeWord:"Всі олди пускают сльозу" }  /* ,
+    { id:5, text:"Найбільший океан на планеті?", options:["Індійський","Тихий","Атлантичний"], correctIndex:1, codeWord:"PACIFIC-11" },
+    { id:6, text:"Мова, якою ти зараз читаєш?", options:["Українська","Іспанська","Нідерландська"], correctIndex:0, codeWord:"UKR-UA" },
+    { id:7, text:"Кольори українського прапора?", options:["Синій і жовтий","Червоний і білий","Зелений і чорний"], correctIndex:0, codeWord:"FLAG-UA" },
+    { id:8, text:"Який день тижня завжди правдивий?", options:["Понеділок","Сьогодні","Завтра"], correctIndex:1, codeWord:"META-NOW" },
+    { id:9, text:"HTML — це…", options:["Мова стилів","База даних","Мова розмітки"], correctIndex:2, codeWord:"MARKUP-90" },
+    { id:10, text:"Скільки кутів у трикутника?", options:["Три","Чотири","П'ять"], correctIndex:0, codeWord:"TRI-3" } */
+  ];
+
+  function parseYouTube(url){
+    try{
+      const u=new URL(url);
+      if(u.hostname.includes("youtu.be")) return u.pathname.replace("/","");
+      if(u.hostname.includes("youtube.com")) return u.searchParams.get("v");
+    }catch(e){}
+    return null;
+  }
+
+  function renderMedia(url){
+    const box=$('media');
+    if(!url){ box.innerHTML=''; return; }
+    const yt=parseYouTube(url);
+    box.innerHTML = yt
+      ? `<iframe width="100%" height="320" src="https://www.youtube.com/embed/${yt}" allowfullscreen></iframe>`
+      : `<a href="${url}" target="_blank" rel="noopener" class="muted">Матеріал</a>`;
+  }
+
+  let picks=[], step=0, used=0, locked=false;
+
+  async function boot(){
+    show($('card-table'), false);
+    if(useFb){
+      const appSdk = await import('https://www.gstatic.com/firebasejs/10.13.1/firebase-app.js');
+      const authSdk = await import('https://www.gstatic.com/firebasejs/10.13.1/firebase-auth.js');
+      const fsSdk   = await import('https://www.gstatic.com/firebasejs/10.13.1/firebase-firestore.js');
+      app = appSdk.initializeApp(firebaseConfig);
+      auth = authSdk.getAuth(app);
+      fs   = fsSdk;
+      try{ await authSdk.signInAnonymously(auth); }catch(e){ useFb=false; }
+      db = fsSdk.initializeFirestore(app, {experimentalForceLongPolling:true,useFetchStreams:false,ignoreUndefinedProperties:true});
+      if(playerName){ await ensureDraft(); }
+    }
+    startGame();
+  }
+
+  function startGame(){
+    picks=[...QUESTIONS].sort(()=>Math.random()-0.5).slice(0,3);
+    step=0; used=0; locked=false;
+    show($('quizBox'), true);
+    show($('successBox'), false);
+    show($('failBox'), false);
+    show($('card-table'), false);
+    renderQ();
+  }
+
+  function restart(){ startGame(); }
+  function goIndex(){ location.href='index.html'; }
+
+  function renderQ(){
+    const q=picks[step];
+    locked=false;
+    $('progress').textContent = `Спроба ${used+1} / 3`;
+    $('question').textContent = q.text;
+    renderMedia(q.mediaUrl);
+    const opts=$('options'); opts.innerHTML='';
+    q.options.forEach((t,i)=>{ const b=document.createElement('button'); b.className='opt'; b.textContent=t; b.onclick=()=>choose(i); opts.appendChild(b); });
+    $('feedback').textContent=''; $('nextBtn').classList.add('hidden');
+  }
+
+  async function choose(i){
+    if(locked) return; locked=true;
+    const q=picks[step];
+    const btns=Array.from(document.querySelectorAll('button.opt'));
+    btns.forEach((b,idx)=>{ if(idx===q.correctIndex)b.classList.add('correct'); if(idx===i && idx!==q.correctIndex)b.classList.add('wrong'); b.disabled=true; });
+    const correct = i===q.correctIndex; used++;
+
+    if(correct){
+      $('codeword').textContent = q.codeWord;
+      await saveStatus(STATUS.PASSED);
+      show($('quizBox'), false);
+      show($('successBox'), true);
+      startRedirectCountdown(10); // ← змінено на 10 секунд
+      return;
+    }
+    if(!correct && used>=3){
+      await saveStatus(STATUS.FAILED);
+      show($('quizBox'), false);
+      show($('failBox'), true);
+      return;
+    }
+    if(step<2){ $('feedback').textContent='Неправильно.'; $('nextBtn').classList.remove('hidden'); }
+  }
+
+  function nextQuestion(){ if(step<2){ step++; renderQ(); } }
+
+  async function ensureDraft(){
+    if(!useFb) return;
+    const ref = fs.doc(db,'players',playerId);
+    const snap = await fs.getDoc(ref);
+    if(!snap.exists()){
+      await fs.setDoc(ref,{name: playerName,nameLower:(playerName||'').toLowerCase(),status:2,bribes:Number(localStorage.getItem('bribes'))||0,updatedAt:Date.now()});
+    }
+  }
+
+  async function saveStatus(s){
+    localStorage.setItem('status', String(s));
+    if(!useFb) return;
+    await fs.setDoc(fs.doc(db,'players',playerId),{name: playerName,status:s,updatedAt:Date.now()},{merge:true});
+  }
+
+  async function addBribe(amt){
+    const cur=Number(localStorage.getItem('bribes'))||0;
+    const next=cur+amt; localStorage.setItem('bribes', String(next));
+    if(!useFb) return;
+    await fs.setDoc(fs.doc(db,'players',playerId),{name: playerName,bribes: next,updatedAt:Date.now()},{merge:true});
+  }
+
+  async function donateAndRestart(){ await addBribe(100); restart(); }
+
+  /* === 10-секундний таймер з поверненням на головну === */
+  function startRedirectCountdown(seconds=10){
+    const secEl = $('sec'); const bar=$('bar');
+    if(bar){
+      bar.style.animation='none';
+      void bar.offsetWidth;
+      bar.style.animation=`countdown ${seconds}s linear forwards`;
+    }
+    let left = seconds;
+    secEl.textContent = left;
+    const t0 = Date.now();
+    const timer = setInterval(()=>{
+      left = Math.max(0, seconds - Math.floor((Date.now()-t0)/1000));
+      secEl.textContent = left;
+      if(left<=0){ clearInterval(timer); goIndex(); }
+    },200);
+  }
+
+  boot();
+  window.nextQuestion=nextQuestion;
+  window.donateAndRestart=donateAndRestart;
+  window.restart=restart;
+  window.goIndex=goIndex;
+</script>
+</body>
+</html>
